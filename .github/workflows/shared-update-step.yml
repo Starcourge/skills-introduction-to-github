@@ -1,0 +1,80 @@
+name: Shared, Update step
+
+# Reusable workflow holding the logic every step workflow shares:
+# read the current step, and if it matches, advance the learner to the next step.
+# Reference: https://docs.github.com/en/actions/using-workflows/reusing-workflows
+on:
+  workflow_call:
+    inputs:
+      from_step:
+        description: The step the learner must currently be on.
+        required: true
+        type: string
+      to_step:
+        description: The step to advance the learner to.
+        required: true
+        type: string
+      branch_name:
+        description: The branch name used throughout the exercise.
+        required: false
+        type: string
+        default: my-first-branch
+      checkout_ref:
+        description: Branch, tag or SHA to check out. Defaults to the triggering ref.
+        required: false
+        type: string
+        default: ""
+
+# Reference: https://docs.github.com/en/actions/security-guides/automatic-token-authentication
+permissions:
+  # Need `contents: read` to checkout the repository.
+  # Need `contents: write` to update the step metadata.
+  contents: write
+
+jobs:
+  # Get the current step to only run the main job when the learner is on the same step.
+  get_current_step:
+    name: Check current step number
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+      - id: get_step
+        run: |
+          echo "current_step=$(cat ./.github/steps/-step.txt)" >> $GITHUB_OUTPUT
+    outputs:
+      current_step: ${{ steps.get_step.outputs.current_step }}
+
+  update_step:
+    name: Update to step ${{ inputs.to_step }}
+    needs: get_current_step
+
+    # We will only run this action when:
+    # 1. This repository isn't the template repository.
+    # 2. The step is currently `from_step`.
+    # Any event specific conditions live in the calling workflow.
+    # Reference: https://docs.github.com/en/actions/learn-github-actions/contexts
+    # Reference: https://docs.github.com/en/actions/learn-github-actions/expressions
+    if: >-
+      ${{ !github.event.repository.is_template
+          && needs.get_current_step.outputs.current_step == inputs.from_step }}
+
+    # We'll run Ubuntu for performance instead of Mac or Windows.
+    runs-on: ubuntu-latest
+
+    steps:
+      # We'll need to check out the repository so that we can edit README.md.
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # Let's get all the branches.
+          ref: ${{ inputs.checkout_ref }}
+
+      # In README.md, switch `from_step` for `to_step`.
+      - name: Update to step ${{ inputs.to_step }}
+        uses: skills/action-update-step@v2
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          from_step: ${{ inputs.from_step }}
+          to_step: ${{ inputs.to_step }}
+          branch_name: ${{ inputs.branch_name }}
